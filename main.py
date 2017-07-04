@@ -1,5 +1,5 @@
 import argparse
-import os
+import os,sys
 import scipy.misc
 import numpy as np
 import caffe
@@ -42,7 +42,6 @@ caffe_model_path = '/mnt/public/zhang7/caffe_psp/pspnet101_VOC2012.caffemodel'
 caffe_prototxt_path = '/mnt/public/zhang7/pix2pix_multiview/test.prototxt'
 
 def main(_):
-
 	if args.caffe_segmentation is True:		
 		caffenet = caffe.Net(caffe_prototxt_path, caffe_model_path, caffe.TEST)
 		caffe.set_mode_gpu()
@@ -57,7 +56,7 @@ def main(_):
 		os.makedirs(args.sample_dir)
 	if not os.path.exists(args.test_dir):
 		os.makedirs(args.test_dir)
-
+	img_prefix_num = len(get_file_name_counter_hashmap(image_path))
 	gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_memeory_ratio)
 
 	with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options,intra_op_parallelism_threads=2)) as sess:
@@ -65,9 +64,9 @@ def main(_):
 						output_size=args.image_size, checkpoint_dir=args.checkpoint_dir)
 
 		if args.phase == 'train':
-			model.train(args)
+			model.train(img_prefix_num)
 		else:
-			model.test(args)
+			model.test()
 
 if __name__ == '__main__':
 		tf.app.run()

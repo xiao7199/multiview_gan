@@ -1,6 +1,6 @@
 import numpy as np
 from PIL import Image
-import caffe
+import caffe,time
 import glob, os
 import scipy.misc
 
@@ -109,10 +109,23 @@ def compute_mean_val(image_path):
 	print('[*] Finish computing the mean value (RGB format): {}'.format(mean_val))
 	return mean_val
 
+def get_file_name_counter_hashmap(image_path):
+	file_name_counter_recorder = {}
+	file_name_list = [f for f in os.listdir(image_path) if f.endswith('.JPG')]
+	for file_name in file_name_list:
+		file_prefix = file_name[:file_name.index('_')]
+		file_counter = file_name[file_name.index('_')+1:file_name.index('.')]
+		if file_prefix in file_name_counter_recorder:
+			file_name_counter_recorder[file_prefix] += 1
+		else:
+			file_name_counter_recorder[file_prefix] = 1
+
+	file_prefix_keys_array = file_name_counter_recorder.keys()
+	return file_prefix_keys_array
+
 def image_reader(image_path, image_size, batch_size, mean_val):
 	#read image dataset and store the file name
 	palette = reverse_pascal_palette() 
-	os.chdir(image_path)
 	file_name_counter_recorder = {}
 	
 	if mean_val is None:
@@ -179,10 +192,11 @@ def image_reader(image_path, image_size, batch_size, mean_val):
 					= get_masked_image(chair1_view2_image,chair1_view2_mask,palette,return_mask = True)
 			chair2_mask_image = get_masked_image(chair2_image,chair2_mask,palette)
 
+
 			image_array[0,batch_counter,:,:,:] =  chair1_view1_mask_image - mean_val
 			image_array[1,batch_counter,:,:,:] =  chair1_view2_mask_image - mean_val
 			image_array[2,batch_counter,:,:,:] =  chair2_mask_image - mean_val
-
+#			scipy.misc.imsave('img.png', chair1_view2_mask)
 			segmentation_array[batch_counter,:,:,:3] = chair1_view2_mask - mean_val
 			segmentation_array[batch_counter,:,:,3:4] = np.expand_dims(chair1_view2_binary_mask , axis = 2)
 			batch_counter += 1
@@ -193,7 +207,7 @@ def image_reader(image_path, image_size, batch_size, mean_val):
 
 
 def save_images(images, image_path):
-	return scipy.misc.imsave(path, images)
+	return scipy.misc.imsave(image_path, images[0,:,:,:])
 
 def reverse_pascal_palette():
 	palette = {0:(  0,   0,   0)  ,

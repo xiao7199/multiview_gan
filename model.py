@@ -41,6 +41,14 @@ class pix2pix(object):
 		self.g_bn_e7 = batch_norm(name='g_bn_e7')
 		self.g_bn_e8 = batch_norm(name='g_bn_e8')
 
+		self.g_bn_e2_r = batch_norm(name='g_bn_e2_real')
+		self.g_bn_e3_r = batch_norm(name='g_bn_e3_real')
+		self.g_bn_e4_r = batch_norm(name='g_bn_e4_real')
+		self.g_bn_e5_r = batch_norm(name='g_bn_e5_real')
+		self.g_bn_e6_r = batch_norm(name='g_bn_e6_real')
+		self.g_bn_e7_r = batch_norm(name='g_bn_e7_real')
+		self.g_bn_e8_r = batch_norm(name='g_bn_e8_real')
+
 		self.g_bn_d1 = batch_norm(name='g_bn_d1')
 		self.g_bn_d2 = batch_norm(name='g_bn_d2')
 		self.g_bn_d3 = batch_norm(name='g_bn_d3')
@@ -63,24 +71,26 @@ class pix2pix(object):
 		self.build_model()
 
 	def build_model(self):
+		print('[O] Start building the model')
+		self.real_chair1_view1 = self.real_data[0,:,:,:,:];
+		self.real_chair1_view2 = self.real_data[1,:,:,:,:];
+		self.real_chair2 = self.real_data[2,:,:,:,:];
 
-		self.real_chair1_view1 = self.real_data[1,:,:,:,:];
-		self.real_chair1_view2 = self.real_data[2,:,:,:,:];
-		self.real_chair2 = self.real_data[3,:,:,:,:];
+		self.real_chair1_view2_mask_segment = self.real_chair1_view2_mask[:,:,:,:3]
 
-		self.fake_img = self.generator(self.real_chair1_view2_mask,self.real_chair1_view1)
-
+		self.fake_img = self.generator(self.real_chair1_view2_mask_segment,self.real_chair1_view1)
+		
 		self.same_chair_different_view = tf.concat([self.real_chair1_view1, self.real_chair1_view2], 3)
 		self.different_chair = tf.concat([self.real_chair1_view1, self.real_chair2], 3)
 		self.chair_generator_compare = tf.concat([self.real_chair1_view1, self.fake_img], 3)
 		
 		self.D_true_same_chair_different_view, self.D_logits_true_same_chair_different_view = self.discriminator(self.same_chair_different_view, reuse=False)
 		self.D_false_different_chair, self.D_logits_false_different_chair = self.discriminator(self.different_chair, reuse=True)
-		self.D_false_filled_texture, self.D_logits_false_filled_testure = self.discriminator(self.chair_generator_compare, reuse=False)
+		self.D_false_filled_texture, self.D_logits_false_filled_testure = self.discriminator(self.chair_generator_compare, reuse=True)
 
-		self.fake_img_sample = self.sampler(self.real_chair1_view2_mask,self.real_chair1_view1)
-
-		self.d_same_chair = tf.summary.histogram("same_chair_different_view", D_true_same_chair_different_view)
+		self.fake_img_sample = self.sampler(self.real_chair1_view2_mask_segment,self.real_chair1_view1)
+		
+		self.d_same_chair = tf.summary.histogram("same_chair_different_view", self.D_true_same_chair_different_view)
 		self.d_different_chair = tf.summary.histogram("different_chair", self.D_false_different_chair)
 		self.d_filled_texture = tf.summary.histogram("filled_texture", self.D_logits_false_filled_testure)
 		self.fake_B_sum = tf.summary.image("fake_image", self.fake_img)
@@ -92,7 +102,7 @@ class pix2pix(object):
 		self.d_loss_fake_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_false_filled_testure, 
 																	labels=tf.zeros_like(self.D_logits_false_filled_testure)))
 		self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_false_filled_testure, labels=tf.ones_like(self.D_false_filled_texture))) \
-															+ self.L1_lambda * tf.reduce_mean(tf.abs(self.real_chair2 - self.fake_img))
+															+ self.L1_lambda * tf.reduce_mean(tf.abs(self.real_chair1_view2 - self.fake_img))
 		
 		self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
 		self.d_loss_fake_sum_1 = tf.summary.scalar("d_loss_fake_1", self.d_loss_fake_1)
@@ -109,16 +119,19 @@ class pix2pix(object):
 		self.g_vars = [var for var in t_vars if 'g_' in var.name]
 
 		self.saver = tf.train.Saver()
-
+		print('[*] Finish building the model')
 	def init_queue_op(self):
 		print('[O] Start Pre-load the image to Queue' )
-		self.q = tf.FIFOQueue(self.args.queue_capacity, [tf.float32, tf.float32])
+		self.q = tf.FIFOQueue(self.args.queue_capacity, [tf.float32, tf.float32], \
+				shapes = [[3,self.batch_size, self.image_size, self.image_size,3],\
+				[self.batch_size,self.image_size,self.image_size,4]])
 		self.enqueue_op = self.q.enqueue([self.real_data_ph, self.real_chair1_view2_mask_ph])
 		self.real_data, self.real_chair1_view2_mask = self.q.dequeue()
 		
 		for i in range(self.args.queue_pre_load_num):
 			train_data = self.image_generator.next()
-			self.sess.run(self.enqueue_op,feed_dict={self.real_data_ph:train_data[0],self.real_chair1_view2_mask_ph:train_data[1]})
+			self.sess.run(self.enqueue_op,feed_dict=\
+				{self.real_data_ph:train_data[0],self.real_chair1_view2_mask_ph:train_data[1]})
 		
 		coord = tf.train.Coordinator()
 		thread = tf.train.start_queue_runners(sess=self.sess, coord=coord)
@@ -184,19 +197,19 @@ class pix2pix(object):
 			# image is (256 x 256 x input_c_dim)
 			e1_real = conv2d(real_image, self.gf_dim, name='g_e1_conv_real')
 			# e1 is (128 x 128 x self.gf_dim)
-			e2_real = self.g_bn_e2(conv2d(lrelu(e1_real), self.gf_dim*2, name='g_e2_conv_real'))
+			e2_real = self.g_bn_e2_r(conv2d(lrelu(e1_real), self.gf_dim*2, name='g_e2_conv_real'))
 			# e2 is (64 x 64 x self.gf_dim*2)
-			e3_real = self.g_bn_e3(conv2d(lrelu(e2_real), self.gf_dim*4, name='g_e3_conv_real'))
+			e3_real = self.g_bn_e3_r(conv2d(lrelu(e2_real), self.gf_dim*4, name='g_e3_conv_real'))
 			# e3 is (32 x 32 x self.gf_dim*4)
-			e4_real = self.g_bn_e4(conv2d(lrelu(e3_real), self.gf_dim*8, name='g_e4_conv_real'))
+			e4_real = self.g_bn_e4_r(conv2d(lrelu(e3_real), self.gf_dim*8, name='g_e4_conv_real'))
 			# e4 is (16 x 16 x self.gf_dim*8)
-			e5_real = self.g_bn_e5(conv2d(lrelu(e4_real), self.gf_dim*8, name='g_e5_conv_real'))
+			e5_real = self.g_bn_e5_r(conv2d(lrelu(e4_real), self.gf_dim*8, name='g_e5_conv_real'))
 			# e5 is (8 x 8 x self.gf_dim*8)
-			e6_real = self.g_bn_e6(conv2d(lrelu(e5_real), self.gf_dim*8, name='g_e6_conv_real'))
+			e6_real = self.g_bn_e6_r(conv2d(lrelu(e5_real), self.gf_dim*8, name='g_e6_conv_real'))
 			# e6 is (4 x 4 x self.gf_dim*8)
-			e7_real = self.g_bn_e7(conv2d(lrelu(e6_real), self.gf_dim*8, name='g_e7_conv_real'))
+			e7_real = self.g_bn_e7_r(conv2d(lrelu(e6_real), self.gf_dim*8, name='g_e7_conv_real'))
 			# e7 is (2 x 2 x self.gf_dim*8)
-			e8_real = self.g_bn_e8(conv2d(lrelu(e7_real), self.gf_dim*8, name='g_e8_conv'))
+			e8_real = self.g_bn_e8_r(conv2d(lrelu(e7_real), self.gf_dim*8, name='g_e8_conv_real'))
 			# e8 is (1 x 1 x self.gf_dim*8)
 
 			concat_feature = tf.concat([e8,e8_real],3)
@@ -243,12 +256,12 @@ class pix2pix(object):
 			# d7 is (128 x 128 x self.gf_dim*1*2)
 
 			self.d8, self.d8_w, self.d8_b = deconv2d(tf.nn.relu(d7),
-				[self.batch_size, s, s, self.output_c_dim], name='g_d8', with_w=True)
+				[self.batch_size, s, s, 3], name='g_d8', with_w=True)
 			# d8 is (256 x 256 x output_c_dim)
 
 			return tf.nn.tanh(self.d8)
 
-	def sampler(self, image, y=None):
+	def sampler(self, image, real_image, y=None):
 
 		with tf.variable_scope("generator") as scope:
 			scope.reuse_variables()
@@ -277,19 +290,19 @@ class pix2pix(object):
 			# image is (256 x 256 x input_c_dim)
 			e1_real = conv2d(real_image, self.gf_dim, name='g_e1_conv_real')
 			# e1 is (128 x 128 x self.gf_dim)
-			e2_real = self.g_bn_e2(conv2d(lrelu(e1_real), self.gf_dim*2, name='g_e2_conv_real'))
+			e2_real = self.g_bn_e2_r(conv2d(lrelu(e1_real), self.gf_dim*2, name='g_e2_conv_real'))
 			# e2 is (64 x 64 x self.gf_dim*2)
-			e3_real = self.g_bn_e3(conv2d(lrelu(e2_real), self.gf_dim*4, name='g_e3_conv_real'))
+			e3_real = self.g_bn_e3_r(conv2d(lrelu(e2_real), self.gf_dim*4, name='g_e3_conv_real'))
 			# e3 is (32 x 32 x self.gf_dim*4)
-			e4_real = self.g_bn_e4(conv2d(lrelu(e3_real), self.gf_dim*8, name='g_e4_conv_real'))
+			e4_real = self.g_bn_e4_r(conv2d(lrelu(e3_real), self.gf_dim*8, name='g_e4_conv_real'))
 			# e4 is (16 x 16 x self.gf_dim*8)
-			e5_real = self.g_bn_e5(conv2d(lrelu(e4_real), self.gf_dim*8, name='g_e5_conv_real'))
+			e5_real = self.g_bn_e5_r(conv2d(lrelu(e4_real), self.gf_dim*8, name='g_e5_conv_real'))
 			# e5 is (8 x 8 x self.gf_dim*8)
-			e6_real = self.g_bn_e6(conv2d(lrelu(e5_real), self.gf_dim*8, name='g_e6_conv_real'))
+			e6_real = self.g_bn_e6_r(conv2d(lrelu(e5_real), self.gf_dim*8, name='g_e6_conv_real'))
 			# e6 is (4 x 4 x self.gf_dim*8)
-			e7_real = self.g_bn_e7(conv2d(lrelu(e6_real), self.gf_dim*8, name='g_e7_conv_real'))
+			e7_real = self.g_bn_e7_r(conv2d(lrelu(e6_real), self.gf_dim*8, name='g_e7_conv_real'))
 			# e7 is (2 x 2 x self.gf_dim*8)
-			e8_real = self.g_bn_e8(conv2d(lrelu(e7_real), self.gf_dim*8, name='g_e8_conv'))
+			e8_real = self.g_bn_e8_r(conv2d(lrelu(e7_real), self.gf_dim*8, name='g_e8_conv_real'))
 			# e8 is (1 x 1 x self.gf_dim*8)
 
 			concat_feature = tf.concat([e8,e8_real],3)
@@ -337,12 +350,13 @@ class pix2pix(object):
 			# d7 is (128 x 128 x self.gf_dim*1*2)
 
 			self.d8, self.d8_w, self.d8_b = deconv2d(tf.nn.relu(d7),
-				[self.batch_size, s, s, self.output_c_dim], name='g_d8', with_w=True)
+				[self.batch_size, s, s, 3], name='g_d8', with_w=True)
 			# d8 is (256 x 256 x output_c_dim)
 
 			return tf.nn.tanh(self.d8)
 
-	def train(self):
+	def train(self, image_length):
+		print('[O] Start Training')
 
 		d_optim = tf.train.AdamOptimizer(self.args.lr, beta1=self.args.beta1) \
 					.minimize(self.d_loss, var_list=self.d_vars)
@@ -360,23 +374,40 @@ class pix2pix(object):
 
 		self.writer = tf.summary.FileWriter("./logs", self.sess.graph)
 
-		for _ in range(args.epoch):
+		counter = 0
+		t = time.time()
+		d_loss_record = 0
+		g_loss_record = 0
+		for epoch_index in range(self.args.epoch):
 
-			_, summary_str = self.sess.run([d_optim, self.d_sum])
-			self.writer.add_summary(summary_str, counter)
-			_, summary_str = self.sess.run([g_optim, self.g_sum])
-			self.writer.add_summary(summary_str, counter)
-			_, summary_str = self.sess.run([g_optim, self.g_sum])
-			self.writer.add_summary(summary_str, counter)
+			for image_index in range(image_length):
+	
+				_, summary_str, d_loss = self.sess.run([d_optim, self.d_sum,self.d_loss])
+				self.writer.add_summary(summary_str, counter)
+				_, summary_str, g_loss_1 = self.sess.run([g_optim, self.g_sum,self.g_loss])
+				self.writer.add_summary(summary_str, counter)
+				_, summary_str, g_loss_2 = self.sess.run([g_optim, self.g_sum,self.g_loss])
+				self.writer.add_summary(summary_str, counter)
+				_, summary_str, g_loss_3 = self.sess.run([g_optim, self.g_sum,self.g_loss])
+				self.writer.add_summary(summary_str, counter)
+				
+				d_loss_record += d_loss
+				g_loss_record += g_loss_1 + g_loss_2 + g_loss_3
 
-			counter += 1
+				if counter%self.args.print_freq == 0:
+					print('Epoch :{}, Image :{}, Time:{}, D_loss:{}, G_loss:{}'.\
+						format(epoch_index,image_index,t-time.time(),\
+							d_loss_record/self.args.print_freq,g_loss_record/(3*self.args.print_freq)))
+					t = time.time()
+					d_loss_record = 0
+					g_loss_record = 0
+				if np.mod(counter, self.args.sample_freq) == 0:
+					self.sample_model(self.args.sample_dir, epoch_index, counter)
 
-			if np.mod(counter, args.sample_freq) == 1:
-				self.sample_model(args.sample_dir, epoch, counter)
+				if np.mod(counter, self.args.save_freq) == 0:
+					self.save(self.args.checkpoint_dir, counter)                
 
-			if np.mod(counter, args.save_freq) == 2:
-				self.save(args.checkpoint_dir, counter)                
-
+				counter += 1
 	def save(self, checkpoint_dir, step):
 		model_name = "pix2pix.model"
 		model_dir = "%s_%s" % (self.batch_size, self.output_size)
@@ -408,8 +439,7 @@ class pix2pix(object):
 		samples, d_loss, g_loss = self.sess.run(
 			[self.fake_img_sample, self.d_loss, self.g_loss],
 		)
-		samples = (image + 1.)/2
-		save_images(samples, 
-					'./{}/train_{:02d}_{:04d}.png'.format(sample_dir, epoch, idx))
+		save_images(samples,
+					'{}/train_{:02d}_{:04d}.png'.format(sample_dir, epoch, idx))
 		print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
 
