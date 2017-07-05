@@ -77,8 +77,9 @@ class pix2pix(object):
 		self.real_chair2 = self.real_data[2,:,:,:,:];
 
 		self.real_chair1_view2_mask_segment = self.real_chair1_view2_mask[:,:,:,:3]
+		self.fake_img_binary_mask = self.real_chair1_view2_mask[:,:,:,3:34]
 
-		self.fake_img = self.generator(self.real_chair1_view2_mask_segment,self.real_chair1_view1)
+		self.fake_img = tf.multiply(self.fake_img_binary_mask, self.generator(self.real_chair1_view2_mask_segment,self.real_chair1_view1))
 		
 		self.same_chair_different_view = tf.concat([self.real_chair1_view1, self.real_chair1_view2], 3)
 		self.different_chair = tf.concat([self.real_chair1_view1, self.real_chair2], 3)
@@ -436,10 +437,13 @@ class pix2pix(object):
 
 	def sample_model(self, sample_dir, epoch, idx):
 
-		samples, d_loss, g_loss = self.sess.run(
-			[self.fake_img_sample, self.d_loss, self.g_loss],
+		mean_val = np.array([145.99938098 , 132.40487166 , 121.54731091])
+		samples, d_loss, g_loss,chair_img = self.sess.run(
+			[self.fake_img_sample, self.d_loss, self.g_loss,self.real_chair1_view2],
 		)
 		save_images(samples,
 					'{}/train_{:02d}_{:04d}.png'.format(sample_dir, epoch, idx))
+		save_images(chair_img + mean_val,
+					'{}/train_{:02d}_{:04d}_ori.png'.format(sample_dir, epoch, idx))
 		print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
 

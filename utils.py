@@ -81,20 +81,23 @@ def caffe_chair_segmentation(net, image_path, chair_index = 9, crop_size = 473,p
 
 	print('[*] caffe segmentation is complete')
 
-def get_masked_image(image, mask, pascal_palette ,chair_index = [9,18], return_mask = False):
+def get_masked_image(image, mask, pascal_palette, mean_val,chair_index = [9,18], return_mask = False):
 
 	[h,w,_] = image.shape
-	binary_mask_record = np.ones((h,w)) == 1
-	for current_chair_index in chair_index:
-		current_color = pascal_palette.get(current_chair_index)
-		current_binary_mask = (mask[:,:,0] == current_color[0]) \
-				& (mask[:,:,1] == current_color[1]) & (mask[:,:,2] == current_color[2])
-		binary_mask_record &= current_binary_mask
-	image[binary_mask_record,:] = np.zeros((1,3))
+
+	current_color = pascal_palette.get(chair_index[0])
+	chair_0_binary_mask = (mask[:,:,0] == current_color[0]) \
+			& (mask[:,:,1] == current_color[1]) & (mask[:,:,2] == current_color[2])
+
+	current_color = pascal_palette.get(chair_index[1])
+	chair_1_binary_mask = (mask[:,:,0] == current_color[0]) \
+			& (mask[:,:,1] == current_color[1]) & (mask[:,:,2] == current_color[2])	
+	binary_mask_record = ~(chair_0_binary_mask | chair_1_binary_mask)
+	image[binary_mask_record,:] = mean_val
 	if return_mask is False:
 		return image
 	else:
-		mask[binary_mask_record,:] = np.zeros((1,3))
+		mask[binary_mask_record,:] = mean_val
 		return image,mask,binary_mask_record
 
 def compute_mean_val(image_path):
@@ -167,38 +170,35 @@ def image_reader(image_path, image_size, batch_size, mean_val):
 			chair1_view2_image_name = current_prefix+'_{}.JPG'.format(random_2view_index[1])
 			chair2_image_name = next_prefix+'_{}.JPG'.format(random_1view_chair2_index[0])
 
-			chair1_view1_image = Image.open(os.path.join(image_path,chair1_view1_image_name)).convert('RGB')
-			chair1_view2_image = Image.open(os.path.join(image_path,chair1_view2_image_name)).convert('RGB')
-			chair2_image = Image.open(os.path.join(image_path,chair2_image_name)).convert('RGB')
-
-			chair1_view1_image = np.array(scipy.misc.imresize(chair1_view1_image, [image_size,image_size]),np.float32)
-			chair1_view2_image = np.array(scipy.misc.imresize(chair1_view2_image, [image_size,image_size]),np.float32)
-			chair2_image = np.array(scipy.misc.imresize(chair2_image, [image_size,image_size]),np.float32)
+			chair1_view1_image = np.array(Image.open(os.path.join(image_path,chair1_view1_image_name)).convert('RGB'))
+			chair1_view2_image = np.array(Image.open(os.path.join(image_path,chair1_view2_image_name)).convert('RGB'))
+			chair2_image = np.array(Image.open(os.path.join(image_path,chair2_image_name)).convert('RGB'))
 
 			chair1_view1_mask_image_name = current_prefix+'_{}.png'.format(random_2view_index[0])
 			chair1_view2_mask_image_name = current_prefix+'_{}.png'.format(random_2view_index[1])
 			chair2_mask_image_name = next_prefix+'_{}.png'.format(random_1view_chair2_index[0])
 
-			chair1_view1_mask = Image.open(os.path.join(image_path,chair1_view1_mask_image_name))
-			chair1_view2_mask = Image.open(os.path.join(image_path,chair1_view2_mask_image_name))
-			chair2_mask = Image.open(os.path.join(image_path,chair2_mask_image_name))
+			chair1_view1_mask = np.array(Image.open(os.path.join(image_path,chair1_view1_mask_image_name)))
+			chair1_view2_mask = np.array(Image.open(os.path.join(image_path,chair1_view2_mask_image_name)))
+			chair2_mask = np.array(Image.open(os.path.join(image_path,chair2_mask_image_name)))
 
-			chair1_view1_mask = np.array(scipy.misc.imresize(chair1_view1_mask, [image_size,image_size]),np.float32)
-			chair1_view2_mask = np.array(scipy.misc.imresize(chair1_view2_mask, [image_size,image_size]),np.float32)
-			chair2_mask = np.array(scipy.misc.imresize(chair2_mask, [image_size,image_size]),np.float32)
-
-			chair1_view1_mask_image = get_masked_image(chair1_view1_image,chair1_view1_mask,palette)
+			chair1_view1_mask_image = get_masked_image(chair1_view1_image,chair1_view1_mask,palette,mean_val)
 			chair1_view2_mask_image,chair1_view2_mask,chair1_view2_binary_mask \
-					= get_masked_image(chair1_view2_image,chair1_view2_mask,palette,return_mask = True)
-			chair2_mask_image = get_masked_image(chair2_image,chair2_mask,palette)
+					= get_masked_image(chair1_view2_image,chair1_view2_mask,palette,mean_val,return_mask = True)
+			chair2_mask_image = get_masked_image(chair2_image,chair2_mask,palette,mean_val)
 
+			chair1_view1_mask_image = np.array(scipy.misc.imresize(chair1_view1_mask_image, [image_size,image_size]),np.float32)
+			chair1_view2_mask_image = np.array(scipy.misc.imresize(chair1_view2_mask_image, [image_size,image_size]),np.float32)
+			chair2_mask_image = np.array(scipy.misc.imresize(chair2_mask_image, [image_size,image_size]),np.float32)
+			chair1_view2_mask = np.array(scipy.misc.imresize(chair1_view2_mask, [image_size,image_size]),np.float32)
+			binary_mask = np.array(scipy.misc.imresize(chair1_view2_binary_mask, [image_size,image_size]),np.float32)	
 
 			image_array[0,batch_counter,:,:,:] =  chair1_view1_mask_image - mean_val
 			image_array[1,batch_counter,:,:,:] =  chair1_view2_mask_image - mean_val
 			image_array[2,batch_counter,:,:,:] =  chair2_mask_image - mean_val
 #			scipy.misc.imsave('img.png', chair1_view2_mask)
 			segmentation_array[batch_counter,:,:,:3] = chair1_view2_mask - mean_val
-			segmentation_array[batch_counter,:,:,3:4] = np.expand_dims(chair1_view2_binary_mask , axis = 2)
+			segmentation_array[batch_counter,:,:,3:4] = np.expand_dims(binary_mask , axis = 2)
 			batch_counter += 1
 
 			if batch_counter == batch_size:
